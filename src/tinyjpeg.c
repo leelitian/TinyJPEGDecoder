@@ -249,10 +249,10 @@ static const uint8_t val_ac_chrominance[] =
 }  while(0);
 
  /* Signed version !!!! */
-// ˵��һ�����һ��if
-// ��Ϊ�洢�������е��Ƕ�Ӧ�ķ��룬����������λ�������ݷ�ʽ�������滮һ����-31~-16:16~31�������͵�
-// �������������λ�϶���1���������λ�϶���0�����Ը����϶�������x < ((1 << nbit) - 1)������ʽ��
-// ���Կ��Եȼ��ڣ�if (((result >> (nbits_wanted - 1)) & 1) == 0����ֱ��ȡ���λ�ж���1����0
+// 说明一下最后一个if
+// 因为存储到码流中的是对应的反码，不保留符号位，而根据范式霍夫曼规划一般是-31~-16:16~31这种类型的
+// 所以正数的最高位肯定是1，负数最高位肯定是0，所以负数肯定是满足x < ((1 << nbit) - 1)这种形式的
+// 所以可以等价于，if (((result >> (nbits_wanted - 1)) & 1) == 0，即直接取最高位判断是1还是0
 #define get_nbits(reservoir,nbits_in_reservoir,stream,nbits_wanted,result) do { \
    fill_nbits(reservoir,nbits_in_reservoir,stream,(nbits_wanted)); \
    result = ((reservoir)>>(nbits_in_reservoir-(nbits_wanted))); \
@@ -296,8 +296,8 @@ static void resync(struct jdec_private *priv);
  *
  * If the code is not present for any reason, -1 is return.
  */
-// ֮���������ű�����Ϊ����������ǰ׺�룬�����Ҳ����ڵ�ʱ��Ҫ����������ң��ٶȱȽ���������ͨ�����ű�
-// ���Դ��ӿ��ٶȣ��̵����֣�
+// 之所以用两张表是因为霍夫曼码是前缀码，当查找不存在的时候要继续往后查找，速度比较慢，这里通过两张表
+// 可以大大加快速度（短的码字）
 static int get_next_huffman_code(struct jdec_private *priv, struct huffman_table *huffman_table)
 {
 	int value, hcode;
@@ -319,7 +319,7 @@ static int get_next_huffman_code(struct jdec_private *priv, struct huffman_table
 		look_nbits(priv->reservoir, priv->nbits_in_reservoir, priv->stream, nbits, hcode);
 		slowtable = huffman_table->slowtable[extra_nbits];
 		/* Search if the code is in this array */
-		while (slowtable[0]) {	// �о���һ��Ӧ����hash table��ʵ�֣����������ı���̫���˰�
+		while (slowtable[0]) {	// 感觉这一块应该用hash table来实现，否则这样的遍历太慢了吧
 			if (slowtable[0] == hcode) {
 				skip_nbits(priv->reservoir, priv->nbits_in_reservoir, priv->stream, nbits);
 				return slowtable[1];
@@ -355,7 +355,7 @@ static void process_Huffman_data_unit(struct jdec_private *priv, int component)
 	huff_code = get_next_huffman_code(priv, c->DC_table);
 	//trace("+ %x\n", huff_code);
 	if (huff_code) {
-		// ����ĵ����ڶ�������ʹ�õ��˿���look table�����Բ���size
+		// 这里的倒数第二个参数使用到了快速look table，所以不是size
 		get_nbits(priv->reservoir, priv->nbits_in_reservoir, priv->stream, huff_code, DCT[0]);
 		DCT[0] += c->previous_DC;
 		c->previous_DC = DCT[0];
@@ -458,10 +458,10 @@ static void build_huffman_table(const unsigned char *bits, const unsigned char *
 			 * Good: val can be put in the lookup table, so fill all value of this
 			 * column with value val
 			 */
-			// ��ǰ׺��ȫ������������7λ������0101 110�����0101 110 00��0101 110 11�����������Χ��
-			// ����ʱ���Ǵ�������0101 110�����Ե�ֱ����ȡ9��bitʱ0101 110 XXʱ�����ϾͿ��Եõ���Ӧ�õ�����
-			// ��0101 110��Ȼ���֪��������7��bit���������XX�����н��롣������ԭ����huffman��Ҫ������λ������
-			// �ı׶ˣ����ڶ̵�����һ�β��ҵ�λ��ʹ�ÿռ任ʱ�䣬�������뷨
+			// 将前缀码全部填充掉，例如7位的码字0101 110，填充0101 110 00到0101 110 11，代码这个范围内
+			// 查找时都是代码码字0101 110，所以当直接提取9个bit时0101 110 XX时，马上就可以得到对应该的码字
+			// 是0101 110，然后就知道长度是7个bit，最后两个XX不进行解码。避免了原来的huffman需要不断移位来查找
+			// 的弊端，对于短的码字一次查找到位。使用空间换时间，不错的想法
 			int repeat = 1UL << (HUFFMAN_HASH_NBITS - code_size);
 			code <<= HUFFMAN_HASH_NBITS - code_size;
 			while (repeat--)
@@ -1672,7 +1672,7 @@ static int parse_SOS(struct jdec_private *priv, const unsigned char *stream)
 
 static int parse_DHT(struct jdec_private *priv, const unsigned char *stream)
 {
-	unsigned char huff_bits[17];	// Ӧ���Ƿ�ʽ����������bit_len��Ϊ16��
+	unsigned char huff_bits[17];	// 应该是范式霍夫曼表的bit_len分为16组
 	int length, index;
 
 	length = be16_to_cpu(stream) - 2;
@@ -2129,7 +2129,7 @@ int tinyjpeg_set_components(struct jdec_private *priv, unsigned char **component
 {
 	unsigned int i;
 	if (ncomponents > COMPONENTS)
-		ncomponents = COMPONENTS;
+		ncomponents = SCOMPONENTS;
 	for (i = 0; i < ncomponents; i++)
 		priv->components[i] = components[i];
 	return 0;
@@ -2141,4 +2141,3 @@ int tinyjpeg_set_flags(struct jdec_private *priv, int flags)
 	priv->flags = flags;
 	return oldflags;
 }
-
