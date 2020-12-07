@@ -1,38 +1,27 @@
-Small jpeg decoder library (header file)
-Copyright (c) 2006, Luc Saillard <luc@saillard.org>
-All rights reserved.
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+# TinyJPEGDecoder
 
-- Redistributions of source code must retain the above copyright notice,
- this list of conditions and the following disclaimer.
-- Redistributions in binary form must reproduce the above copyright notice,
- this list of conditions and the following disclaimer in the documentation
- and/or other materials provided with the distribution.
-- Neither the name of the author nor the names of its contributors may be
- used to endorse or promote products derived from this software without
- specific prior written permission.
+>  本仓库拷贝自https://github.com/fzyzwrj/TinyJPEGDecoder，做了稍许改动。
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGE.
+### 运行环境
 
----
-web: https://saillard.org/programs_and_patches/tinyjpegdecoder/
-file: tinyjpegdecoder-20070609.tar.bz2
-src: https://saillard.org/programs_and_patches/tinyjpegdecoder/tinyjpegdecoder-20070609.tar.bz2
+Windows10；VS2017；Cmake
 
----
+在目录下运行`Cmake .`，将生成`.sln`文件，打开项目并生成即可运行。
 
-网上找到的一个关于jpeg解码的工程，信息源如上。
-1. 加入一部分自己的注释
-2. 需要C99支持
-3. 修改源码，提高可读性
+### 运行示例
+
+```bash
+TinyJPEGDecoder ./test_image/testrgb1x1.jpg yuv420p ./test_image/test
+```
+
+### 项目说明
+
+* 在原仓库的基础上，增加了部分注释，修正了输出错误。
+
+* 删除了原本的makefile文件：本人在Linux下make失败，原因是`jidctflt.c`嵌入了汇编代码（可能在Win下可以编译）
+* 改动：当运行参数[format]设置为`YUV420p`时，将输出`.yuv`文件，而不仅仅是.Y .U .V文件
+* 经过测试，JPG文件经过解码后能获得正确的输出文件，可以使用`YUVPlayer`自行尝试
+
+### 相应博客
+
+https://blog.csdn.net/leelitian3/article/details/110818955
