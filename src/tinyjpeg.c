@@ -304,8 +304,12 @@ static int get_next_huffman_code(struct jdec_private *priv, struct huffman_table
 	unsigned int extra_nbits, nbits;
 	uint16_t *slowtable;
 
+	// 这里的reservoir是一个缓冲区：由于C语言一次最少在stream读取8位数据，而我们需要分析的是二进制码流，因此读入的8位数据必须缓存起来
+	// 查看stream的后9位数据，在lookup表中查找
 	look_nbits(priv->reservoir, priv->nbits_in_reservoir, priv->stream, HUFFMAN_HASH_NBITS, hcode);
 	value = huffman_table->lookup[hcode];
+
+	// 如果在lookup表找到了，就在stream中跳过code_size
 	if (__likely(value >= 0)) {
 		unsigned int code_size = huffman_table->code_size[value];
 		skip_nbits(priv->reservoir, priv->nbits_in_reservoir, priv->stream, code_size);
@@ -347,15 +351,15 @@ static void process_Huffman_data_unit(struct jdec_private *priv, int component)
 	struct component *c = &priv->component_infos[component];
 	short int DCT[64];
 
-
 	/* Initialize the DCT coef table */
 	memset(DCT, 0, sizeof(DCT));
 
 	/* DC coefficient decoding */
+	// 首先读入的是前缀码huff_code
 	huff_code = get_next_huffman_code(priv, c->DC_table);
 	//trace("+ %x\n", huff_code);
 	if (huff_code) {
-		// 这里的倒数第二个参数使用到了快速look table，所以不是size
+		// 前缀码指明了DC差值的位数，因此再到stream读取huff_code位
 		get_nbits(priv->reservoir, priv->nbits_in_reservoir, priv->stream, huff_code, DCT[0]);
 		DCT[0] += c->previous_DC;
 		c->previous_DC = DCT[0];
@@ -427,6 +431,7 @@ static void build_huffman_table(const unsigned char *bits, const unsigned char *
 		/* Build a temp array
 		 *   huffcode[X] => code used to write vals[X]
 		 */
+		// 这段很精髓，利用码长序列计算得到码字序列
 		unsigned int code = 0;
 		uint8_t nbits = huffsize[0];
 		int k = 0;
@@ -487,9 +492,11 @@ static void build_default_huffman_tables(struct jdec_private *priv)
 		&& priv->default_huffman_table_initialized)
 		return;
 
+	// Y分量
 	build_huffman_table(bits_dc_luminance, val_dc_luminance, &priv->HTDC[0]);
 	build_huffman_table(bits_ac_luminance, val_ac_luminance, &priv->HTAC[0]);
 
+	// U、V分量
 	build_huffman_table(bits_dc_chrominance, val_dc_chrominance, &priv->HTDC[1]);
 	build_huffman_table(bits_ac_chrominance, val_ac_chrominance, &priv->HTAC[1]);
 
@@ -532,10 +539,12 @@ static unsigned char clamp(int i)
  */
 static void YCrCB_to_YUV420P_1x1(struct jdec_private *priv)
 {
+	// 这种情况下，YUV均为8x8的DU，宏块=1*YDU+1*UDU+1*VDU
 	const unsigned char *s, *y;
 	unsigned char *p;
 	int i, j;
-
+	
+	// 将1*YDU写入plane[0]
 	p = priv->plane[0];
 	y = priv->Y;
 	for (i = 0; i < 8; i++) {
@@ -543,7 +552,8 @@ static void YCrCB_to_YUV420P_1x1(struct jdec_private *priv)
 		p += priv->width;
 		y += 8;
 	}
-
+	
+	// 将UDU进行2*2采样，写入plane[1]
 	p = priv->plane[1];
 	s = priv->Cb;
 	for (i = 0; i < 8; i += 2) {
@@ -552,7 +562,8 @@ static void YCrCB_to_YUV420P_1x1(struct jdec_private *priv)
 		s += 8; /* Skip one line */
 		p += priv->width / 2 - 4;
 	}
-
+	
+	// 将VDU进行2*2采样，写入plane[2]
 	p = priv->plane[2];
 	s = priv->Cr;
 	for (i = 0; i < 8; i += 2) {
@@ -1317,11 +1328,12 @@ static void YCrCB_to_Grey_2x2(struct jdec_private *priv)
 /*
  * Decode all the 3 components for 1x1
  */
+// 解码的开始
 static void decode_MCU_1x1_3planes(struct jdec_private *priv)
 {
 	// Y
-	process_Huffman_data_unit(priv, cY);
-	IDCT(&priv->component_infos[cY], priv->Y, 8);
+	process_Huffman_data_unit(priv, cY);			// 将解码之后的DCT系数存入priv->component_infos[cY]
+	IDCT(&priv->component_infos[cY], priv->Y, 8);	// 将priv->component_infos[cY]反变换反量化之后写入priv->Y
 
 	// Cb
 	process_Huffman_data_unit(priv, cCb);
@@ -1545,6 +1557,9 @@ static void build_quantization_table(float *qtable, const unsigned char *ref_tab
 	 * What's actually stored is 1/divisor so that the inner loop can
 	 * use a multiplication rather than a division.
 	 */
+
+	// 最终量化系数 = 量化系数 * 量化因子
+	// 编码时的量化因子是：scalefactor[row] * scalefactor[col]
 	int i, j;
 	static const double aanscalefactor[8] = {
 	   1.0, 1.387039845, 1.306562965, 1.175875602,
@@ -1554,6 +1569,7 @@ static void build_quantization_table(float *qtable, const unsigned char *ref_tab
 
 	for (i = 0; i < 8; i++) {
 		for (j = 0; j < 8; j++) {
+			// qtable的顺序是zigzag的顺序
 			*qtable++ = ref_table[*zz++] * aanscalefactor[i] * aanscalefactor[j];
 		}
 	}
@@ -1570,14 +1586,19 @@ static int parse_DQT(struct jdec_private *priv, const unsigned char *stream)
 	dqt_block_end = stream + be16_to_cpu(stream);
 	stream += 2;	/* Skip length */
 
+	// while循环的意义是：处理反复出现的DQT_id和DQT_table
 	while (stream < dqt_block_end) {
 		qi = *stream++;
+		// 高 4 位：精度，只有两个可选值 0：8位；1：16位;
+		// 低 4 位：量化表 ID，取值范围为 0～3
 #if SANITY_CHECK
 		if (qi >> 4)
 			error("16 bits quantization table is not supported\n");
+		// 本人觉得这里应当是if(qi>3)
 		if (qi > 4)
 			error("No more 4 quantization table is supported (got %d)\n", qi);
 #endif
+		//此时qi的高四位已经确定是0了，故qi表示量化表id
 		table = priv->Q_tables[qi];
 		build_quantization_table(table, stream);
 		stream += 64;
@@ -1597,9 +1618,9 @@ static int parse_SOF(struct jdec_private *priv, const unsigned char *stream)
 
 	height = be16_to_cpu(stream + 3);
 	width = be16_to_cpu(stream + 5);
-	nr_components = stream[7];
+	nr_components = stream[7];		// 颜色的分量数
 #if SANITY_CHECK
-	if (stream[2] != 8)
+	if (stream[2] != 8)	// 检查精度是否为8
 		error("Precision other than 8 is not supported\n");
 	if (width > JPEG_MAX_WIDTH || height > JPEG_MAX_HEIGHT)
 		error("Width and Height (%dx%d) seems suspicious\n", width, height);
@@ -1611,10 +1632,11 @@ static int parse_SOF(struct jdec_private *priv, const unsigned char *stream)
 		error("Width need to be a multiple of 16 (current Width is %d)\n", width);
 #endif
 	stream += 8;
+	// 此时stream指向：颜色分量的信息
 	for (i = 0; i < nr_components; i++) {
-		cid = *stream++;
-		sampling_factor = *stream++;
-		Q_table = *stream++;
+		cid = *stream++;				// 颜色分量id
+		sampling_factor = *stream++;	// 采样因子：水平|垂直
+		Q_table = *stream++;			// 所属量化表id
 		c = &priv->component_infos[i];
 #if SANITY_CHECK
 		c->cid = cid;
@@ -1624,9 +1646,9 @@ static int parse_SOF(struct jdec_private *priv, const unsigned char *stream)
 		c->Vfactor = sampling_factor & 0xf;
 		c->Hfactor = sampling_factor >> 4;
 		c->Q_table = priv->Q_tables[Q_table];
+		// fix : c->Vfactor
 		trace("Component:%d  factor:%dx%d  Quantization table:%d\n",
-			cid, c->Hfactor, c->Hfactor, Q_table);
-
+			cid, c->Hfactor, c->Vfactor, Q_table);
 	}
 	priv->width = width;
 	priv->height = height;
@@ -1651,7 +1673,7 @@ static int parse_SOS(struct jdec_private *priv, const unsigned char *stream)
 	stream += 3;
 	for (i = 0; i < nr_components; i++) {
 		cid = *stream++;
-		table = *stream++;
+		table = *stream++;	// 哈夫曼表
 #if SANITY_CHECK
 		if ((table & 0xf) >= 4)
 			error("We do not support more than 2 AC Huffman table\n");
@@ -1672,6 +1694,7 @@ static int parse_SOS(struct jdec_private *priv, const unsigned char *stream)
 
 static int parse_DHT(struct jdec_private *priv, const unsigned char *stream)
 {
+	//unsigned char huff_bits[16];
 	unsigned char huff_bits[17];	// 应该是范式霍夫曼表的bit_len分为16组
 	int length, index;
 
@@ -1680,12 +1703,15 @@ static int parse_DHT(struct jdec_private *priv, const unsigned char *stream)
 
 	trace("> DHT marker (length=%d)\n", length);
 
+	// DHT字段可能有多个huffman表
 	while (length > 0) {
+		// 哈夫曼表id
 		index = *stream++;
 
 		/* We need to calculate the number of bytes 'vals' will takes */
 		huff_bits[0] = 0;
 		int code_count = 0;
+
 		for (int i = 0; i < 16; i++) {
 			huff_bits[i] = *stream++;
 			code_count += huff_bits[i];
@@ -1697,7 +1723,8 @@ static int parse_DHT(struct jdec_private *priv, const unsigned char *stream)
 			error("No more than %d Huffman tables is supported (got %d)\n", HUFFMAN_TABLES, index & 0xf);
 		trace("Huffman table %s[%d] length=%d\n", (index & 0xf0) ? "AC" : "DC", index & 0xf, code_count);
 #endif
-
+		// 高 4 位：类型，只有两个值可选 0：DC 直流；1：AC 交流；
+		// 低 4 位：哈夫曼表 ID
 		if (index & 0xf0)
 			build_huffman_table(huff_bits, stream, &priv->HTAC[index & 0xf]);
 		else
@@ -1712,6 +1739,7 @@ static int parse_DHT(struct jdec_private *priv, const unsigned char *stream)
 	return 0;
 }
 
+// 差分编码累计复位
 static int parse_DRI(struct jdec_private *priv, const unsigned char *stream)
 {
 	unsigned int length;
@@ -1735,8 +1763,6 @@ static int parse_DRI(struct jdec_private *priv, const unsigned char *stream)
 
 	return 0;
 }
-
-
 
 static void resync(struct jdec_private *priv)
 {
@@ -1789,7 +1815,7 @@ static int find_next_rst_marker(struct jdec_private *priv)
 
 static int parse_JFIF(struct jdec_private *priv, const unsigned char *stream)
 {
-	int chuck_len;
+	int chuck_len;	// 当前块的长度
 	int marker;
 	int sos_marker_found = 0;
 	int dht_marker_found = 0;
@@ -1807,25 +1833,25 @@ static int parse_JFIF(struct jdec_private *priv, const unsigned char *stream)
 		chuck_len = be16_to_cpu(stream);
 		next_chunck = stream + chuck_len;
 		switch (marker) {
-		case SOF:
+		case SOF:	// 2：帧信息
 			if (parse_SOF(priv, stream) < 0)
 				return -1;
 			break;
-		case DQT:
+		case DQT:	// 1：量化表
 			if (parse_DQT(priv, stream) < 0)
 				return -1;
 			break;
-		case SOS:
+		case SOS:	// 5：扫描图像
 			if (parse_SOS(priv, stream) < 0)
 				return -1;
 			sos_marker_found = 1;
 			break;
-		case DHT:
+		case DHT:	// 3：哈夫曼表
 			if (parse_DHT(priv, stream) < 0)
 				return -1;
 			dht_marker_found = 1;
 			break;
-		case DRI:
+		case DRI:	// 4：差分复位间隔
 			if (parse_DRI(priv, stream) < 0)
 				return -1;
 			break;
@@ -1922,6 +1948,7 @@ int tinyjpeg_parse_header(struct jdec_private *priv, const unsigned char *buf, u
 	priv->stream_length = size - 2;
 	priv->stream_end = priv->stream_begin + priv->stream_length;
 
+	// 解析jpeg文件（去除FF SOI）
 	ret = parse_JFIF(priv, priv->stream_begin);
 
 	return ret;
@@ -1978,11 +2005,14 @@ int tinyjpeg_decode(struct jdec_private *priv, int pixfmt)
 {
 	unsigned int x, y, xstride_by_mcu, ystride_by_mcu;
 	unsigned int bytes_per_blocklines[3], bytes_per_mcu[3];
+
+	// fct的意思应该是function type
 	decode_MCU_fct decode_MCU;
 	const decode_MCU_fct *decode_mcu_table;
 	const convert_colorspace_fct *colorspace_array_conv;
 	convert_colorspace_fct convert_to_pixfmt;
 
+	// C语言的异常处理，保存当前的AR寄存器，异常时用于跳转
 	if (setjmp(priv->jump_state))
 		return -1;
 
@@ -1992,15 +2022,18 @@ int tinyjpeg_decode(struct jdec_private *priv, int pixfmt)
 	bytes_per_blocklines[1] = 0;
 	bytes_per_blocklines[2] = 0;
 
+	// 函数指针数组
 	decode_mcu_table = decode_mcu_3comp_table;
+
+	// 根据不同输出类型，进行不同的初始化
 	switch (pixfmt) {
 	case TINYJPEG_FMT_YUV420P:
 		colorspace_array_conv = convert_colorspace_yuv420p;
-		if (priv->components[0] == NULL)
+		if (priv->components[0] == NULL)	// Y
 			priv->components[0] = (uint8_t *)malloc(priv->width * priv->height);
-		if (priv->components[1] == NULL)
+		if (priv->components[1] == NULL)	// U
 			priv->components[1] = (uint8_t *)malloc(priv->width * priv->height / 4);
-		if (priv->components[2] == NULL)
+		if (priv->components[2] == NULL)	// V
 			priv->components[2] = (uint8_t *)malloc(priv->width * priv->height / 4);
 		bytes_per_blocklines[0] = priv->width;
 		bytes_per_blocklines[1] = priv->width / 4;
@@ -2040,22 +2073,29 @@ int tinyjpeg_decode(struct jdec_private *priv, int pixfmt)
 		return -1;
 	}
 
+	// MCU: Minimum Coding Unit
 	xstride_by_mcu = ystride_by_mcu = 8;
+	
+	// DU都是8x8的
+	// Y.H x Y.V = 1 x 1，此时 MCU(8x8) = YDU + UDU + VDU，相当于YUV444
 	if ((priv->component_infos[cY].Hfactor | priv->component_infos[cY].Vfactor) == 1) {
 		decode_MCU = decode_mcu_table[0];
 		convert_to_pixfmt = colorspace_array_conv[0];
 		trace("Use decode 1x1 sampling\n");
+	// Y.H x Y.V = 1 x 2，不支持
 	} else if (priv->component_infos[cY].Hfactor == 1) {
 		decode_MCU = decode_mcu_table[1];
 		convert_to_pixfmt = colorspace_array_conv[1];
 		ystride_by_mcu = 16;
 		trace("Use decode 1x2 sampling (not supported)\n");
+	// Y.H x Y.V = 2 x 2，此时 MCU(16x16) = 4*YDU + UDU + VDU，相当于YUV420
 	} else if (priv->component_infos[cY].Vfactor == 2) {
 		decode_MCU = decode_mcu_table[3];
 		convert_to_pixfmt = colorspace_array_conv[3];
 		xstride_by_mcu = 16;
 		ystride_by_mcu = 16;
 		trace("Use decode 2x2 sampling\n");
+	// Y.H x Y.V = 2 x 1，此时 MCU(16x8) = 2*YDU + UDU + VDU，相当于YUV422
 	} else {
 		decode_MCU = decode_mcu_table[2];
 		convert_to_pixfmt = colorspace_array_conv[2];
@@ -2063,6 +2103,7 @@ int tinyjpeg_decode(struct jdec_private *priv, int pixfmt)
 		trace("Use decode 2x1 sampling\n");
 	}
 
+	// 差分复位
 	resync(priv);
 
 	/* Don't forget to that block can be either 8 or 16 lines */
@@ -2080,9 +2121,13 @@ int tinyjpeg_decode(struct jdec_private *priv, int pixfmt)
 		priv->plane[0] = priv->components[0] + (y * bytes_per_blocklines[0]);
 		priv->plane[1] = priv->components[1] + (y * bytes_per_blocklines[1]);
 		priv->plane[2] = priv->components[2] + (y * bytes_per_blocklines[2]);
+
 		for (x = 0; x < priv->width; x += xstride_by_mcu) {
-			decode_MCU(priv);
-			convert_to_pixfmt(priv);
+			decode_MCU(priv);			// 解码一个MCU，并进行反变换反量化，存入priv->Y
+			convert_to_pixfmt(priv);	// 将解码后的数据按照输出格式要求，存入plane
+			//decode_MCU_1x1_3planes(priv);
+			//YCrCB_to_YUV420P_1x1(priv);
+
 			priv->plane[0] += bytes_per_mcu[0];
 			priv->plane[1] += bytes_per_mcu[1];
 			priv->plane[2] += bytes_per_mcu[2];
@@ -2129,7 +2174,7 @@ int tinyjpeg_set_components(struct jdec_private *priv, unsigned char **component
 {
 	unsigned int i;
 	if (ncomponents > COMPONENTS)
-		ncomponents = SCOMPONENTS;
+		ncomponents = COMPONENTS;
 	for (i = 0; i < ncomponents; i++)
 		priv->components[i] = components[i];
 	return 0;

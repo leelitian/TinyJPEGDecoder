@@ -104,17 +104,25 @@ static void write_yuv(const char *filename, int width, int height, unsigned char
 {
 	FILE *F;
 	char temp[1024];
-
-	snprintf(temp, 1024, "%s.Y", filename);
+	
+	//snprintf(temp, 1024, "%s.Y", filename);
+	//F = fopen(temp, "wb");
+	//fwrite(components[0], width, height, F);
+	//fclose(F);
+	//snprintf(temp, 1024, "%s.U", filename);
+	//F = fopen(temp, "wb");
+	//fwrite(components[1], width*height / 4, 1, F);
+	//fclose(F);
+	//snprintf(temp, 1024, "%s.V", filename);
+	//F = fopen(temp, "wb");
+	//fwrite(components[2], width*height / 4, 1, F);
+	//fclose(F);
+	
+	// 修改：将.Y .U .V文件合并成yuv420p格式文件
+	snprintf(temp, 1024, "%s.yuv", filename);
 	F = fopen(temp, "wb");
 	fwrite(components[0], width, height, F);
-	fclose(F);
-	snprintf(temp, 1024, "%s.U", filename);
-	F = fopen(temp, "wb");
 	fwrite(components[1], width*height / 4, 1, F);
-	fclose(F);
-	snprintf(temp, 1024, "%s.V", filename);
-	F = fopen(temp, "wb");
 	fwrite(components[2], width*height / 4, 1, F);
 	fclose(F);
 }
@@ -222,7 +230,7 @@ int convert_one_image(const char *infilename, const char *outfilename, int outpu
 	fclose(fp);
 
 	/* Decompress it */
-	jdec = tinyjpeg_init();
+	jdec = tinyjpeg_init();		// 初始化jdec结构体
 	if (jdec == NULL)
 		exitmessage("Not enough memory to alloc the structure need for decompressing\n");
 

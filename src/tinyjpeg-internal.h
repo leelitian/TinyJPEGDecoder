@@ -78,7 +78,7 @@ struct component
 #endif
 };
 
-
+// 函数指针
 typedef void (*decode_MCU_fct) (struct jdec_private *priv);
 typedef void (*convert_colorspace_fct) (struct jdec_private *priv);
 
@@ -102,7 +102,7 @@ struct jdec_private
   struct huffman_table HTAC[HUFFMAN_TABLES];	/* AC huffman tables   */
   int default_huffman_table_initialized;
   int restart_interval;
-  int restarts_to_go;				/* MCUs left in this restart interval */
+  int restarts_to_go;				    /* MCUs left in this restart interval */
   int last_rst_marker_seen;			/* Rst marker is incremented each time */
 
   /* Temp space used after the IDCT to store each components */

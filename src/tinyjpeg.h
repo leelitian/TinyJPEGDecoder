@@ -68,6 +68,3 @@ int tinyjpeg_set_flags(struct jdec_private *priv, int flags);
 #endif
 
 #endif
-
-
-
