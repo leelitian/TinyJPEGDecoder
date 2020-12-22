@@ -1,6 +1,6 @@
 # TinyJPEGDecoder
 
->  本仓库拷贝自https://github.com/fzyzwrj/TinyJPEGDecoder，做了稍许改动。
+>  本仓库拷贝自如下仓库，做了稍许改动  https://github.com/fzyzwrj/TinyJPEGDecoder
 
 ### 运行环境
 
@@ -11,7 +11,7 @@ Windows10；VS2017；Cmake
 ### 运行示例
 
 ```bash
-TinyJPEGDecoder ./test_image/testrgb1x1.jpg yuv420p ./test_image/test
+TinyJPEGDecoder ./test_images/testrgb1x1.jpg yuv420p ./test_images/test
 ```
 
 ### 项目说明
